@@ -1,91 +1,11 @@
-# Based On:
-#   https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/quickref-ecs.html
-# with the following changes:
-#   - Add a 'Name' tags to the ASG, propatting to the EC2 instances.
-#   - Fixed the names of several resources to be unique based on the stack name:
-#     - ALB
-#     - Target Group
-#   - Added a Public-IP option to the launch config for the EC2 instances
 AWSTemplateFormatVersion: '2010-09-09'
 Parameters:
-  KeyName:
-    Type: AWS::EC2::KeyPair::KeyName
-    Description: Name of an existing EC2 KeyPair to enable SSH access to the ECS instances.
   VpcId:
     Type: AWS::EC2::VPC::Id
     Description: Select a VPC that allows instances access to the Internet.
   SubnetId:
     Type: List<AWS::EC2::Subnet::Id>
     Description: Select at two subnets in your selected VPC.
-  DesiredCapacity:
-    Type: Number
-    Default: '1'
-    Description: Number of instances to launch in your ECS cluster.
-  MaxSize:
-    Type: Number
-    Default: '1'
-    Description: Maximum number of instances that can be launched in your ECS cluster.
-  InstanceType:
-    Description: EC2 instance type
-    Type: String
-    Default: t2.micro
-    AllowedValues:
-      - t2.micro
-      - t2.small
-      - t2.medium
-      - t2.large
-      - m3.medium
-      - m3.large
-      - m3.xlarge
-      - m3.2xlarge
-      - m4.large
-      - m4.xlarge
-      - m4.2xlarge
-      - m4.4xlarge
-      - m4.10xlarge
-      - c4.large
-      - c4.xlarge
-      - c4.2xlarge
-      - c4.4xlarge
-      - c4.8xlarge
-      - c3.large
-      - c3.xlarge
-      - c3.2xlarge
-      - c3.4xlarge
-      - c3.8xlarge
-      - r3.large
-      - r3.xlarge
-      - r3.2xlarge
-      - r3.4xlarge
-      - r3.8xlarge
-      - i2.xlarge
-      - i2.2xlarge
-      - i2.4xlarge
-      - i2.8xlarge
-    ConstraintDescription: Please choose a valid instance type.
-  AssociatePublicIpAddress:
-    Type: String
-    Default: False
-Mappings:
-  AWSRegionToAMI:
-    us-east-1:
-      AMIID: ami-09bee01cc997a78a6
-    us-east-2:
-      AMIID: ami-0a9e12068cb98a01d
-    us-west-1:
-      AMIID: ami-0fa6c8d131a220017
-    us-west-2:
-      AMIID: ami-078c97cf1cefd1b38
-    eu-west-1:
-      AMIID: ami-0c9ef930279337028
-    eu-central-1:
-      AMIID: ami-065c1e34da68f2b02
-    ap-northeast-1:
-      AMIID: ami-02265963d1614d04d
-    ap-southeast-1:
-      AMIID: ami-0b68661b29b9e058c
-    ap-southeast-2:
-      AMIID: ami-00e4b147599c13588
 Resources:
   ECSCluster:
     Type: AWS::ECS::Cluster
@@ -127,6 +47,12 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Join ['', [!Ref 'AWS::StackName', -ecs-demo-app]]
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: 256
+      Memory: 0.5GB
+      ExecutionRoleArn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ecsTaskExecutionRole"
       ContainerDefinitions:
       - Name: simple-app
         Cpu: '10'
@@ -150,7 +76,7 @@ Resources:
             Sample App</title> <style>body {margin-top: 40px; background-color: #333;}
             </style> </head><body> <div style=color:white;text-align:center> <h1>Amazon
             ECS Sample App</h1> <h2>Congratulations!</h2> <p>Your application is now
-            running on a container in Amazon ECS.</p>'' > top; /bin/date > date ;
+            running on a container in Amazon ECS with Fargate.</p>'' > top; /bin/date > date ;
             echo ''</div></body></html>'' > bottom; cat top date bottom > /usr/local/apache2/htdocs/index.html
             ; sleep 1; done"']
         EntryPoint: [sh, -c]
@@ -179,7 +105,6 @@ Resources:
       SecurityGroups: [!Ref 'EcsSecurityGroup']
   ALBListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
-    DependsOn: ECSServiceRole
     Properties:
       DefaultActions:
       - Type: forward
@@ -213,39 +138,7 @@ Resources:
       Protocol: HTTP
       UnhealthyThresholdCount: 2
       VpcId: !Ref 'VpcId'
-  ECSAutoScalingGroup:
-    Type: AWS::AutoScaling::AutoScalingGroup
-    Properties:
-      VPCZoneIdentifier: !Ref 'SubnetId'
-      LaunchConfigurationName: !Ref 'ContainerInstances'
-      MinSize: '1'
-      MaxSize: !Ref 'MaxSize'
-      DesiredCapacity: !Ref 'DesiredCapacity'
-      Tags:
-        - Key: Name
-          Value: !Sub "${AWS::StackName}-asg"
-          PropagateAtLaunch: True
-    CreationPolicy:
-      ResourceSignal:
-        Timeout: PT15M
-    UpdatePolicy:
-      AutoScalingReplacingUpdate:
-        WillReplace: 'true'
-  ContainerInstances:
-    Type: AWS::AutoScaling::LaunchConfiguration
-    Properties:
-      ImageId: !FindInMap [AWSRegionToAMI, !Ref 'AWS::Region', AMIID]
-      SecurityGroups: [!Ref 'EcsSecurityGroup']
-      InstanceType: !Ref 'InstanceType'
-      IamInstanceProfile: !Ref 'EC2InstanceProfile'
-      KeyName: !Ref 'KeyName'
-      AssociatePublicIpAddress: !Ref AssociatePublicIpAddress
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash -xe
-          echo ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config
-          yum install -y aws-cfn-bootstrap
-          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource ECSAutoScalingGroup --region ${AWS::Region}
+      TargetType: ip
   service:
     Type: AWS::ECS::Service
     DependsOn: ALBListener
@@ -256,27 +149,14 @@ Resources:
       - ContainerName: simple-app
         ContainerPort: '80'
         TargetGroupArn: !Ref 'ECSTG'
-      Role: !Ref 'ECSServiceRole'
       TaskDefinition: !Ref 'taskdefinition'
-  ECSServiceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Statement:
-        - Effect: Allow
-          Principal:
-            Service: [ecs.amazonaws.com]
-          Action: ['sts:AssumeRole']
-      Path: /
-      Policies:
-      - PolicyName: ecs-service
-        PolicyDocument:
-          Statement:
-          - Effect: Allow
-            Action: ['elasticloadbalancing:DeregisterInstancesFromLoadBalancer', 'elasticloadbalancing:DeregisterTargets',
-              'elasticloadbalancing:Describe*', 'elasticloadbalancing:RegisterInstancesWithLoadBalancer',
-              'elasticloadbalancing:RegisterTargets', 'ec2:Describe*', 'ec2:AuthorizeSecurityGroupIngress']
-            Resource: '*'
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: !Ref SubnetId
+          SecurityGroups:
+            - !Ref EcsSecurityGroup
   ServiceScalingTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     DependsOn: service
@@ -284,7 +164,7 @@ Resources:
       MaxCapacity: 2
       MinCapacity: 1
       ResourceId: !Join ['', [service/, !Ref 'ECSCluster', /, !GetAtt [service, Name]]]
-      RoleARN: !GetAtt [AutoscalingRole, Arn]
+      RoleARN: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ffthh-Lab-3-autoscaling-role
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
   ServiceScalingPolicy:
@@ -317,48 +197,6 @@ Resources:
             - LoadBalancerFullName
       ComparisonOperator: GreaterThanThreshold
       MetricName: HTTPCode_ELB_5XX_Count
-  EC2Role:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Statement:
-        - Effect: Allow
-          Principal:
-            Service: [ec2.amazonaws.com]
-          Action: ['sts:AssumeRole']
-      Path: /
-      Policies:
-      - PolicyName: ecs-service
-        PolicyDocument:
-          Statement:
-          - Effect: Allow
-            Action: ['ecs:CreateCluster', 'ecs:DeregisterContainerInstance', 'ecs:DiscoverPollEndpoint',
-              'ecs:Poll', 'ecs:RegisterContainerInstance', 'ecs:StartTelemetrySession',
-              'ecs:Submit*', 'logs:CreateLogStream', 'logs:PutLogEvents']
-            Resource: '*'
-  AutoscalingRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Statement:
-        - Effect: Allow
-          Principal:
-            Service: [application-autoscaling.amazonaws.com]
-          Action: ['sts:AssumeRole']
-      Path: /
-      Policies:
-      - PolicyName: service-autoscaling
-        PolicyDocument:
-          Statement:
-          - Effect: Allow
-            Action: ['application-autoscaling:*', 'cloudwatch:DescribeAlarms', 'cloudwatch:PutMetricAlarm',
-              'ecs:DescribeServices', 'ecs:UpdateService']
-            Resource: '*'
-  EC2InstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      Path: /
-      Roles: [!Ref 'EC2Role']
 Outputs:
   ecsservice:
     Value: !Ref 'service'

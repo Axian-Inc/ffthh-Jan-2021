@@ -1,2 +1,7 @@
-Supporting material for: https://axianinc.atlassian.net/wiki/spaces/AXLND/pages/1739685986/January+-+FFTHH+Curriculum+and+Docker+ECS+Overview+Lab
+Supporting material for the Jan 2021 installment of the FFTHH.
 
+* (Re-)Introduction to Docker
+  * With labs
+* Overview of Container services at AWS
+  * With an ECR lab
+  * With three ECS labs
